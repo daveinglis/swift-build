@@ -976,6 +976,7 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                 let needsDualCompilation = context.sdkVariant?.llvmTargetTripleSys == "windows"
                     && scope.evaluate(BuiltinMacros.MACH_O_TYPE) == "mh_dylib"
                     && scope.evaluate(BuiltinMacros.SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING)
+                var staticOutputPaths = Set<Path>()
                 if needsDualCompilation {
                     let normalObjectFileDir = scope.evaluate(BuiltinMacros.PER_ARCH_OBJECT_FILE_DIR)
                     let staticObjectFileDirStr = normalObjectFileDir.str + "-static"
@@ -983,12 +984,18 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                     let staticModuleFileDirStr = normalModuleFileDir.str + "-static"
                     let normalResponseFilePath = scope.evaluate(BuiltinMacros.SWIFT_RESPONSE_FILE_PATH)
                     let staticResponseFilePathStr = Path(staticObjectFileDirStr).join(normalResponseFilePath.basename).str
+                    let normalLinkFileListPath = scope.evaluate(BuiltinMacros.__INPUT_FILE_LIST_PATH__)
+                    let staticLinkFileListPathStr = normalLinkFileListPath.isEmpty ? "" : Path(staticObjectFileDirStr).join(normalLinkFileListPath.basename).str
 
                     var staticTable = scope.table
+                    staticTable.push(BuiltinMacros.CURRENT_VARIANT, literal: "static")
                     staticTable.push(BuiltinMacros.SWIFT_COMPILE_FOR_STATIC_LINKING, literal: true)
                     staticTable.push(BuiltinMacros.PER_ARCH_OBJECT_FILE_DIR, literal: staticObjectFileDirStr)
                     staticTable.push(BuiltinMacros.PER_ARCH_MODULE_FILE_DIR, literal: staticModuleFileDirStr)
                     staticTable.push(BuiltinMacros.SWIFT_RESPONSE_FILE_PATH, literal: staticResponseFilePathStr)
+                    if !staticLinkFileListPathStr.isEmpty {
+                        staticTable.push(BuiltinMacros.__INPUT_FILE_LIST_PATH__, literal: staticLinkFileListPathStr)
+                    }
                     staticTable.push(BuiltinMacros.SWIFT_INSTALL_MODULE, literal: false)
                     staticTable.push(BuiltinMacros.SWIFT_INSTALL_OBJC_HEADER, literal: false)
                     let staticScope = MacroEvaluationScope(table: staticTable, conditionParameterValues: scope.conditionParameterValues)
@@ -1001,10 +1008,11 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                     for task in staticPerArchTasks {
                         for output in task.outputs where output.path.fileExtension == "o" {
                             staticLinkerInputNodes.append(output)
+                            staticOutputPaths.insert(output.path)
                         }
                     }
-                    // Note: static pass tasks are registered via appendGeneratedTasks below;
-                    // do NOT add them to perArchTasks, which feeds the DLL linker's object inputs.
+                    // Include static pass tasks in the build plan so their outputs can be consumed by the libtool task.
+                    perArchTasks.append(contentsOf: staticPerArchTasks)
 
                     if !staticLinkerInputNodes.isEmpty {
                         let archiveOutput = targetBuildDir.join(scope.evaluate(BuiltinMacros.PRODUCT_NAME) + "-static.lib")
@@ -1023,6 +1031,8 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                 for task in perArchTasks {
                     for object in task.outputs {
                         // FIXME: We should be able to do this in terms of actual file types, once we get actual typed objects as the outputs from tasks.
+                        // Skip static-pass objects; they are consumed by the companion static archive, not the DLL linker.
+                        if staticOutputPaths.contains(object.path) { continue }
                         switch object.path.fileExtension {
                         case "o":
                             linkerInputNodes.append(object)
