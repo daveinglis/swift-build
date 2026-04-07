@@ -159,6 +159,13 @@
                 };
             },
             {
+                Name = SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING;
+                Type = Bool;
+                DefaultValue = NO;
+                // When YES, a second compilation pass is emitted with SWIFT_COMPILE_FOR_STATIC_LINKING=YES,
+                // producing a companion static archive alongside the DLL.
+            },
+            {
                 Name = "SWIFT_DEBUG_INFORMATION_FORMAT";
                 Type = Enumeration;
                 Values = (

@@ -102,6 +102,7 @@ extension ProjectModel {
             case SUPPORTS_TEXT_BASED_API
             case SUPPRESS_WARNINGS
             case SWIFT_COMPILE_FOR_STATIC_LINKING
+            case SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING
             case SWIFT_DISABLE_PARSE_AS_LIBRARY
             case SWIFT_ENABLE_BARE_SLASH_REGEX
             case SWIFT_INDEX_STORE_ENABLE

@@ -108,4 +108,64 @@ fileprivate struct WindowsTaskConstructionTests: CoreBasedTests {
             }
         }
     }
+
+    @Test(.requireSDKs(.windows))
+    func windowsDualCompilationForDLL() async throws {
+        try await withTemporaryDirectory { tmpDir in
+            let swiftCompilerPath = try await self.swiftCompilerPath
+            let swiftVersion = try await self.swiftVersion
+            let testProject = try await TestProject(
+                "aProject",
+                groupTree: TestGroup(
+                    "SomeFiles", path: "Sources",
+                    children: [
+                        TestFile("SwiftFile.swift"),
+                    ]),
+                targets: [
+                    TestStandardTarget(
+                        "MyDLL",
+                        type: .dynamicLibrary,
+                        buildConfigurations: [
+                            TestBuildConfiguration(
+                                "Debug",
+                                buildSettings: [
+                                    "PRODUCT_NAME": "$(TARGET_NAME)",
+                                    "SDKROOT": "auto",
+                                    "SWIFT_EXEC": swiftCompilerPath.str,
+                                    "SWIFT_VERSION": swiftVersion,
+                                    "SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING": "YES",
+                                ])
+                        ],
+                        buildPhases: [
+                            TestSourcesBuildPhase([
+                                TestBuildFile("SwiftFile.swift"),
+                            ])
+                        ])
+                ])
+            let core = try await Self.makeCore()
+            let tester = try TaskConstructionTester(core, testProject)
+
+            await tester.checkBuild(BuildParameters(configuration: "Debug"), runDestination: .windows, fs: localFS) { results in
+                // Collect all Swift compilation tasks for MyDLL.
+                let compilationTasks = results.getTasks(.matchTargetName("MyDLL"), .matchRuleType("SwiftDriver Compilation"))
+                #expect(compilationTasks.count == 2, "Expected two Swift compilation tasks for dual compilation")
+
+                let hasStaticTask = compilationTasks.contains { task in
+                    task.commandLine.contains(where: { $0 == ByteString(encodingAsUTF8: "-static") })
+                }
+                let hasDynTask = compilationTasks.contains { task in
+                    !task.commandLine.contains(where: { $0 == ByteString(encodingAsUTF8: "-static") })
+                }
+                #expect(hasStaticTask, "Expected a -static compilation task")
+                #expect(hasDynTask, "Expected a non-static (DLL) compilation task")
+
+                // There should be a Libtool task producing the companion static archive.
+                results.checkTask(.matchTargetName("MyDLL"), .matchRuleType("Libtool")) { task in
+                    task.checkCommandLineContains(["MyDLL-static.lib"])
+                }
+
+                results.checkNoDiagnostics()
+            }
+        }
+    }
 }
