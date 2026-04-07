@@ -161,7 +161,7 @@ fileprivate struct WindowsTaskConstructionTests: CoreBasedTests {
 
                 // There should be a Libtool task producing the companion static archive.
                 results.checkTask(.matchTargetName("MyDLL"), .matchRuleType("Libtool")) { task in
-                    task.checkCommandLineContains(["MyDLL-static.lib"])
+                    task.checkCommandLineMatches([.anySequence, .suffix("MyDLL-static.lib"), .anySequence])
                 }
 
                 results.checkNoDiagnostics()
