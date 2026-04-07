@@ -981,11 +981,16 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                     let staticObjectFileDirStr = normalObjectFileDir.str + "-static"
                     let normalModuleFileDir = scope.evaluate(BuiltinMacros.PER_ARCH_MODULE_FILE_DIR)
                     let staticModuleFileDirStr = normalModuleFileDir.str + "-static"
+                    let normalResponseFilePath = scope.evaluate(BuiltinMacros.SWIFT_RESPONSE_FILE_PATH)
+                    let staticResponseFilePathStr = Path(staticObjectFileDirStr).join(normalResponseFilePath.basename).str
 
                     var staticTable = scope.table
                     staticTable.push(BuiltinMacros.SWIFT_COMPILE_FOR_STATIC_LINKING, literal: true)
                     staticTable.push(BuiltinMacros.PER_ARCH_OBJECT_FILE_DIR, literal: staticObjectFileDirStr)
                     staticTable.push(BuiltinMacros.PER_ARCH_MODULE_FILE_DIR, literal: staticModuleFileDirStr)
+                    staticTable.push(BuiltinMacros.SWIFT_RESPONSE_FILE_PATH, literal: staticResponseFilePathStr)
+                    staticTable.push(BuiltinMacros.SWIFT_INSTALL_MODULE, literal: false)
+                    staticTable.push(BuiltinMacros.SWIFT_INSTALL_OBJC_HEADER, literal: false)
                     let staticScope = MacroEvaluationScope(table: staticTable, conditionParameterValues: scope.conditionParameterValues)
 
                     let staticBuildFilesContext = BuildFilesProcessingContext(staticScope, belongsToPreferredArch: preferredArch == nil || preferredArch == arch, currentArchSpec: currentArchSpec)
@@ -998,11 +1003,12 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                             staticLinkerInputNodes.append(output)
                         }
                     }
-                    perArchTasks.append(contentsOf: staticPerArchTasks)
+                    // Note: static pass tasks are registered via appendGeneratedTasks below;
+                    // do NOT add them to perArchTasks, which feeds the DLL linker's object inputs.
 
                     if !staticLinkerInputNodes.isEmpty {
                         let archiveOutput = targetBuildDir.join(scope.evaluate(BuiltinMacros.PRODUCT_NAME) + "-static.lib")
-                        await appendGeneratedTasks(&perArchTasks, options: [.linking, .linkingRequirement, .unsignedProductRequirement]) { delegate in
+                        await appendGeneratedTasks(&perArchTasks, options: [.linking]) { delegate in
                             let linkerInputs = staticLinkerInputNodes.map { FileToBuild(context: context, absolutePath: $0.path) }
                             await context.libtoolLinkerSpec.constructLinkerTasks(
                                 CommandBuildContext(producer: context, scope: staticScope, inputs: linkerInputs, output: archiveOutput),
