@@ -1122,6 +1122,8 @@ public final class BuiltinMacros {
     public static let SWIFT_PREPARE_FOR_INDEX_LAZY_TYPECHECK = BuiltinMacros.declareBooleanMacro("SWIFT_PREPARE_FOR_INDEX_LAZY_TYPECHECK")
     public static let SWIFT_DISABLE_HEADERMAPS = BuiltinMacros.declareBooleanMacro("SWIFT_DISABLE_HEADERMAPS")
     public static let SWIFT_ENABLE_DEFAULT_SEARCH_PATHS_IN_HEADER_SEARCH_PATHS = BuiltinMacros.declareBooleanMacro("SWIFT_ENABLE_DEFAULT_SEARCH_PATHS_IN_HEADER_SEARCH_PATHS")
+    public static let SWIFT_COMPILE_FOR_STATIC_LINKING = BuiltinMacros.declareBooleanMacro("SWIFT_COMPILE_FOR_STATIC_LINKING")
+    public static let SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING = BuiltinMacros.declareBooleanMacro("SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING")
     public static let SWIFT_DISABLE_PARSE_AS_LIBRARY = BuiltinMacros.declareBooleanMacro("SWIFT_DISABLE_PARSE_AS_LIBRARY")
     public static let SWIFT_LIBRARIES_ONLY = BuiltinMacros.declareBooleanMacro("SWIFT_LIBRARIES_ONLY")
     public static let SWIFT_LIBRARY_LEVEL = BuiltinMacros.declareStringMacro("SWIFT_LIBRARY_LEVEL")
@@ -2380,6 +2382,8 @@ public final class BuiltinMacros {
         _EXPERIMENTAL_SWIFT_EXPLICIT_MODULES,
         SWIFT_DISABLE_HEADERMAPS,
         SWIFT_ENABLE_DEFAULT_SEARCH_PATHS_IN_HEADER_SEARCH_PATHS,
+        SWIFT_COMPILE_FOR_STATIC_LINKING,
+        SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING,
         SWIFT_DISABLE_PARSE_AS_LIBRARY,
         SWIFT_ENABLE_BARE_SLASH_REGEX,
         SWIFT_ENABLE_EMIT_CONST_VALUES,

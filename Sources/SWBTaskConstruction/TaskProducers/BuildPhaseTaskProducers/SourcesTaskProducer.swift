@@ -548,20 +548,32 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                 ))
             } else if fileType.conformsTo(context.lookupFileType(identifier: "compiled.mach-o.dylib")!) {
                 let adjustedAbsolutePath: Path
-                // On Windows, ensure import libraries (.lib) are used instead of DLLs.
+                let adjustedKind: LinkerSpec.LibrarySpecifier.Kind
+                // On Windows, ensure the correct library variant is used depending on the consuming target's link model.
                 if context.sdkVariant?.llvmTargetTripleSys == "windows" && absolutePath.fileSuffix.lowercased() == ".dll" {
-                    adjustedAbsolutePath = Path(absolutePath.withoutSuffix + ".lib")
+                    let consumingMachOType = scope.evaluate(BuiltinMacros.MACH_O_TYPE)
+                    let consumingIsStatic = consumingMachOType == "staticlib" || consumingMachOType == "mh_execute" || consumingMachOType == "mh_object" || consumingMachOType == "objectlib"
+                    let producerAlsoCompilesForStaticLinking = producingTargetSettings?.globalScope.evaluate(BuiltinMacros.SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING) == true
+                    if consumingIsStatic && producerAlsoCompilesForStaticLinking {
+                        // Use the companion static archive instead of the DLL import lib.
+                        adjustedAbsolutePath = Path(absolutePath.withoutSuffix + "-static.lib")
+                        adjustedKind = .static
+                    } else {
+                        adjustedAbsolutePath = Path(absolutePath.withoutSuffix + ".lib")
+                        adjustedKind = .dynamic
+                    }
                 } else {
                     adjustedAbsolutePath = absolutePath
+                    adjustedKind = .dynamic
                 }
                 librarySpecifiers.append(LinkerSpec.LibrarySpecifier(
-                    kind: .dynamic,
+                    kind: adjustedKind,
                     path: adjustedAbsolutePath,
-                    mode: linkageModeForDylib(),
+                    mode: adjustedKind == .static ? (buildFile.shouldLinkWeakly ? .weak : .normal) : linkageModeForDylib(),
                     useSearchPaths: useSearchPaths,
                     isKnownToUseSwift: isKnownToUseSwift,
-                    swiftModulePaths: [:],
-                    swiftModuleAdditionalLinkerArgResponseFilePaths: [:],
+                    swiftModulePaths: adjustedKind == .static ? swiftModulePaths : [:],
+                    swiftModuleAdditionalLinkerArgResponseFilePaths: adjustedKind == .static ? swiftModuleAdditionalLinkerArgResponseFilePaths : [:],
                     prefix: fileType.prefix,
                     privacyFile: privacyFile
                 ))
@@ -962,7 +974,7 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                 // FIXME: We should do this in parallel.
                 let buildFilesContext = BuildFilesProcessingContext(scope, belongsToPreferredArch: preferredArch == nil || preferredArch == arch, currentArchSpec: currentArchSpec)
                 var perArchTasks: [any PlannedTask] = []
-                await groupAndAddTasksForFiles(self, buildFilesContext, scope, filterToAPIRules: isForAPI, filterToHeaderRules: isForHeaders, &perArchTasks, extraResolvedBuildFiles: {
+                let extraBuildFiles: [(Path, FileTypeSpec, Bool)] = {
                     var result: [(Path, FileTypeSpec, Bool)] = []
 
                     if let generateVersionInfoFileTask {
@@ -994,7 +1006,61 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                     }
 
                     return result
-                }())
+                }()
+                await groupAndAddTasksForFiles(self, buildFilesContext, scope, filterToAPIRules: isForAPI, filterToHeaderRules: isForHeaders, &perArchTasks, extraResolvedBuildFiles: extraBuildFiles)
+
+                // Dual compilation pass: on Windows, DLL targets also compile with -static to produce a companion static archive.
+                let needsDualCompilation = context.sdkVariant?.llvmTargetTripleSys == "windows"
+                    && scope.evaluate(BuiltinMacros.MACH_O_TYPE) == "mh_dylib"
+                    && scope.evaluate(BuiltinMacros.SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING)
+                var staticOutputPaths = Set<Path>()
+                if needsDualCompilation {
+                    let normalObjectFileDir = scope.evaluate(BuiltinMacros.PER_ARCH_OBJECT_FILE_DIR)
+                    let staticObjectFileDirStr = normalObjectFileDir.str + "-static"
+                    let normalModuleFileDir = scope.evaluate(BuiltinMacros.PER_ARCH_MODULE_FILE_DIR)
+                    let staticModuleFileDirStr = normalModuleFileDir.str + "-static"
+                    let normalResponseFilePath = scope.evaluate(BuiltinMacros.SWIFT_RESPONSE_FILE_PATH)
+                    let staticResponseFilePathStr = Path(staticObjectFileDirStr).join(normalResponseFilePath.basename).str
+                    let normalLinkFileListPath = scope.evaluate(BuiltinMacros.__INPUT_FILE_LIST_PATH__)
+                    let staticLinkFileListPathStr = normalLinkFileListPath.isEmpty ? "" : Path(staticObjectFileDirStr).join(normalLinkFileListPath.basename).str
+
+                    var staticTable = scope.table
+                    staticTable.push(BuiltinMacros.CURRENT_VARIANT, literal: "static")
+                    staticTable.push(BuiltinMacros.SWIFT_COMPILE_FOR_STATIC_LINKING, literal: true)
+                    staticTable.push(BuiltinMacros.PER_ARCH_OBJECT_FILE_DIR, literal: staticObjectFileDirStr)
+                    staticTable.push(BuiltinMacros.PER_ARCH_MODULE_FILE_DIR, literal: staticModuleFileDirStr)
+                    staticTable.push(BuiltinMacros.SWIFT_RESPONSE_FILE_PATH, literal: staticResponseFilePathStr)
+                    if !staticLinkFileListPathStr.isEmpty {
+                        staticTable.push(BuiltinMacros.__INPUT_FILE_LIST_PATH__, literal: staticLinkFileListPathStr)
+                    }
+                    staticTable.push(BuiltinMacros.SWIFT_INSTALL_MODULE, literal: false)
+                    staticTable.push(BuiltinMacros.SWIFT_INSTALL_OBJC_HEADER, literal: false)
+                    let staticScope = MacroEvaluationScope(table: staticTable, conditionParameterValues: scope.conditionParameterValues)
+
+                    let staticBuildFilesContext = BuildFilesProcessingContext(staticScope, belongsToPreferredArch: preferredArch == nil || preferredArch == arch, currentArchSpec: currentArchSpec)
+                    var staticPerArchTasks: [any PlannedTask] = []
+                    await groupAndAddTasksForFiles(self, staticBuildFilesContext, staticScope, filterToAPIRules: isForAPI, filterToHeaderRules: isForHeaders, &staticPerArchTasks, extraResolvedBuildFiles: extraBuildFiles)
+
+                    var staticLinkerInputNodes: [any PlannedNode] = []
+                    for task in staticPerArchTasks {
+                        for output in task.outputs where output.path.fileExtension == "o" {
+                            staticLinkerInputNodes.append(output)
+                            staticOutputPaths.insert(output.path)
+                        }
+                    }
+                    // Include static pass tasks in the build plan so their outputs can be consumed by the libtool task.
+                    perArchTasks.append(contentsOf: staticPerArchTasks)
+
+                    if !staticLinkerInputNodes.isEmpty {
+                        let archiveOutput = targetBuildDir.join(scope.evaluate(BuiltinMacros.PRODUCT_NAME) + "-static.lib")
+                        await appendGeneratedTasks(&perArchTasks, options: [.linking]) { delegate in
+                            let linkerInputs = staticLinkerInputNodes.map { FileToBuild(context: context, absolutePath: $0.path) }
+                            await context.libtoolLinkerSpec.constructLinkerTasks(
+                                CommandBuildContext(producer: context, scope: staticScope, inputs: linkerInputs, output: archiveOutput),
+                                delegate, libraries: [], usedTools: usedTools)
+                        }
+                    }
+                }
 
                 // Collect the list of object files.
                 var linkerInputNodes: [any PlannedNode] = []
@@ -1002,6 +1068,8 @@ package final class SourcesTaskProducer: FilesBasedBuildPhaseTaskProducerBase, F
                 for task in perArchTasks {
                     for object in task.outputs {
                         // FIXME: We should be able to do this in terms of actual file types, once we get actual typed objects as the outputs from tasks.
+                        // Skip static-pass objects; they are consumed by the companion static archive, not the DLL linker.
+                        if staticOutputPaths.contains(object.path) { continue }
                         switch object.path.fileExtension {
                         case "o":
                             linkerInputNodes.append(object)

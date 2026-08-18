@@ -92,6 +92,7 @@
             EXECUTABLE_PREFIX = "";
             PUBLIC_HEADERS_FOLDER_PATH = "";
             PRIVATE_HEADERS_FOLDER_PATH = "";
+            SWIFT_COMPILE_ALSO_FOR_STATIC_LINKING = YES;
         };
     },
 
