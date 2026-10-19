@@ -1092,6 +1092,7 @@ package final class BuildDescriptionBuilder {
         let inputs = amendedInputsForTask(task, inputs)
         let outputs = amendedOutputsForTask(task, outputs)
 
+        var checksDirectoryDependenciesBeforeRunning = false
         try processTaskLock.withLock {
             // Record the custom tool type.
             // FIXME: This cast is unfortunate.
@@ -1099,6 +1100,8 @@ package final class BuildDescriptionBuilder {
             guard let execTaskAction = execTask.action else {
                 throw StubError.error("INTERNAL ERROR: custom command with tool identifier '\(tool)' is missing a task action implementation")
             }
+            // The clang dependency scan and the Swift driver's planning reuse clang modules from a cache that outlives the build, so they need to know which of their discovered directory dependencies changed before they run.
+            checksDirectoryDependenciesBeforeRunning = execTaskAction is ClangScanTaskAction || execTaskAction is SwiftDriverJobSchedulingTaskAction
             if let existingTaskAction = taskActionMap[tool], existingTaskAction != type(of: execTaskAction) {
                 throw StubError.error("INTERNAL ERROR: task action implementation types \(existingTaskAction) and \(type(of: execTaskAction)) have conflicting tool identifier '\(tool)'; tool identifiers must be globally unique across all task action implementation types")
             }
@@ -1121,8 +1124,7 @@ package final class BuildDescriptionBuilder {
                 if alwaysOutOfDate {
                     $0["always-out-of-date"] = true
                 }
-                // The scan reuses modules from a cache that outlives the build, so it needs to know which of its discovered directory dependencies changed before it runs.
-                if tool == ClangScanTaskAction.toolIdentifier && llbuildSupportsCheckingDirectoryDependenciesBeforeRunning {
+                if checksDirectoryDependenciesBeforeRunning && llbuildSupportsCheckingDirectoryDependenciesBeforeRunning {
                     $0["check-directory-dependencies-before-running"] = true
                 }
                 if task.repairViaOwnershipAnalysis {
