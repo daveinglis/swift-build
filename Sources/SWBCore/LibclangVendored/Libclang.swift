@@ -99,6 +99,10 @@ public final class Libclang {
         libclang_has_directory_dependencies(lib)
     }
 
+    public var supportsInvalidatedPaths: Bool {
+        libclang_has_invalidated_paths(lib)
+    }
+
     public var supportsCASPruning: Bool {
         libclang_has_cas_pruning_feature(lib)
     }
@@ -289,6 +293,20 @@ public final class DependencyScanner {
             }
         }
         return fileDeps
+    }
+
+    /// Reports that `paths` changed since the last scan, so scanning PCMs which depend on them are rebuilt.
+    ///
+    /// The paths must exactly match the directory dependencies reported by earlier scans: absolute, with `.` and `..` removed and symlinks unresolved. Call this before scanning, because modules already validated during a scan aren't invalidated. Does nothing if the libclang doesn't support it.
+    public func addInvalidatedPaths(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        var cStrings = paths.map { strdup($0) }
+        defer { cStrings.forEach { free($0) } }
+        cStrings.withUnsafeMutableBufferPointer { buffer in
+            buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) {
+                libclang_scanner_add_invalidated_paths(scanner, $0, buffer.count)
+            }
+        }
     }
 
     public func diagnoseInvalidNegativeStatCacheEntries() -> [String] {
