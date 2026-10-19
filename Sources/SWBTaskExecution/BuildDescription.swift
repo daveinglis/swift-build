@@ -18,6 +18,7 @@ package import struct SWBProtocol.BuildOperationTaskEnded
 package import struct SWBProtocol.TargetDependencyRelationship
 import class SWBTaskConstruction.ProductPlan
 package import SWBMacro
+import let SWBLLBuild.llbuildSupportsCheckingDirectoryDependenciesBeforeRunning
 import Synchronization
 
 /// The delegate for constructing a build description.
@@ -1119,6 +1120,10 @@ package final class BuildDescriptionBuilder {
                 }
                 if alwaysOutOfDate {
                     $0["always-out-of-date"] = true
+                }
+                // The scan reuses modules from a cache that outlives the build, so it needs to know which of its discovered directory dependencies changed before it runs.
+                if tool == ClangScanTaskAction.toolIdentifier && llbuildSupportsCheckingDirectoryDependenciesBeforeRunning {
+                    $0["check-directory-dependencies-before-running"] = true
                 }
                 if task.repairViaOwnershipAnalysis {
                     $0["repair-via-ownership-analysis"] = true

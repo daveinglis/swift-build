@@ -809,6 +809,29 @@ fileprivate struct BuildDescriptionTests: CoreBasedTests {
         #expect(manifest == fullManifest(fileSystem: fs.ignoreFileSystemDeviceInodeChanges ? "device-agnostic" : "default"))
     }
 
+    /// Check that the clang dependency scan asks llbuild to check its directory dependencies before it runs, and that other commands don't.
+    @Test(.requireLLBuild(apiVersion: 21))
+    func checkDirectoryDependenciesBeforeRunning() async throws {
+        let fs = PseudoFS()
+        let type = MockTaskTypeDescription()
+        let attribute = #""check-directory-dependencies-before-running":true"#
+
+        var scanBuilder = PlannedTaskBuilder(type: type, ruleInfo: ["ScanDependencies", "foo.c"], commandLine: ["builtin-ScanDependencies"], outputs: [MakePlannedPathNode(Path.root.join("tmp/scan.json"))])
+        scanBuilder.action = ClangScanTaskAction()
+        let scanTask = ConstructedTask(&scanBuilder, execTask: Task(&scanBuilder))
+
+        var shellBuilder = PlannedTaskBuilder(type: type, ruleInfo: ["Foo"], commandLine: ["true"], outputs: [MakePlannedPathNode(Path.root.join("tmp/foo.o"))])
+        let shellTask = ConstructedTask(&shellBuilder, execTask: Task(&shellBuilder))
+
+        let buildConstruct = try await BuildDescription.construct(workspace: try TestWorkspace("empty", projects: []).load(getCore()), tasks: [scanTask, shellTask], path: Path.root.join("tmp"), signature: ByteString(encodingAsUTF8: "signature"), fs: fs)
+        _ = try #require(buildConstruct)
+
+        let manifest = try fs.read(Path.root.join("tmp/signature.xcbuilddata/manifest.json")).bytes.asReadableString()
+        #expect(manifest.components(separatedBy: attribute).count - 1 == 1, Comment(rawValue: manifest))
+        let scanCommand = try #require(manifest.components(separatedBy: #""tool":"clang-scan-modules""#).dropFirst().first?.components(separatedBy: "},").first)
+        #expect(scanCommand.contains(attribute), Comment(rawValue: manifest))
+    }
+
     /// Check the basic structure of an llbuild manifest with device agnostic file system.
     @Test
     func manifestWithDeviceAgnosticEnabled() async throws {
