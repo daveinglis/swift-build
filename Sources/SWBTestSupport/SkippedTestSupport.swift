@@ -452,6 +452,13 @@ extension Trait where Self == Testing.ConditionTrait {
         }
     }
 
+    package static var requireDependencyScannerInvalidatedPaths: Self {
+        enabled("clang is too old to accept invalidated paths from the build system") {
+            let libclang = try #require(try await ConditionTraitContext.shared.libclang)
+            return libclang.supportsInvalidatedPaths
+        }
+    }
+
     package static var requireModuleCachePruning: Self {
         enabled {
             let libclang = try #require(try await ConditionTraitContext.shared.libclang)

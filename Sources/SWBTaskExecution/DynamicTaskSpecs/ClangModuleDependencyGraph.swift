@@ -223,6 +223,37 @@ package final class ClangModuleDependencyGraph {
     private let registryQueue = SWBQueue(label: "ClangModuleDependencyGraph", attributes: .concurrent, autoreleaseFrequency: .workItem)
     private var scannerRegistry: [LibclangRegistryKey: LibclangWithScanner] = [:]
 
+    /// Directories whose listing changed since the previous build, as reported by llbuild.
+    ///
+    /// The scanner reuses scanning PCMs from the module cache, which persists across builds. It only treats a PCM as out of date because of a directory dependency if the directory was reported to it, so these are passed to every scanner, including ones created after a directory is reported.
+    private let invalidatedPaths = SWBMutex<Set<String>>([])
+
+    /// Reports that the listing of `directory` changed since the previous build, so scanning PCMs depending on it are rebuilt.
+    ///
+    /// The scanner records only the top directory of a tree, so `directory` and all of its ancestors are reported. This must be called before the affected modules are scanned, and can be called from any thread.
+    package func addInvalidatedDirectory(_ directory: Path) {
+        var newPaths: [String] = []
+        invalidatedPaths.withLock { paths in
+            var current = directory
+            while paths.insert(current.str).inserted {
+                newPaths.append(current.str)
+                let parent = current.dirname
+                if parent == current {
+                    break
+                }
+                current = parent
+            }
+        }
+        guard !newPaths.isEmpty else {
+            return
+        }
+        registryQueue.blocking_sync {
+            for libclangWithScanner in scannerRegistry.values {
+                libclangWithScanner.scanner.addInvalidatedPaths(newPaths)
+            }
+        }
+    }
+
     package func waitForCompletion() async {
         await registryQueue.sync(flags: .barrier) { }
     }
@@ -280,7 +311,9 @@ package final class ClangModuleDependencyGraph {
                             }
                             return try (ClangCASDatabases(options: casOpts), casOptsForInvocations)
                         }
-                        return try LibclangWithScanner(libclang: newLibclang, casDBs: casSettings?.0, casOptsForInvocations: casSettings?.1)
+                        let libclangWithScanner = try LibclangWithScanner(libclang: newLibclang, casDBs: casSettings?.0, casOptsForInvocations: casSettings?.1)
+                        libclangWithScanner.scanner.addInvalidatedPaths(Array(self.invalidatedPaths.withLock { $0 }))
+                        return libclangWithScanner
                     } catch DependencyScanner.Error.featureUnsupported {
                         throw StubError.error("libclang at '\(path)' does not have up-to-date dependency scanner")
                     } catch ClangCASDatabases.Error.featureUnsupported {
