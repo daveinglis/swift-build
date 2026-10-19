@@ -256,6 +256,15 @@ open class SwiftDriverJobSchedulingTaskAction: TaskAction {
                     dynamicExecutionDelegate.discoveredDependencyNode(ExecutionNode(identifier: dep))
                 }
             }
+
+            // Register directory-listing dependencies (e.g. umbrella/framework module header directories) so that adding or removing a file in one of these directories reruns the planning.
+            let directoryDependencies = ClangModuleDependencyGraph.trackableDirectoryDependencies(try graph.queryPlanningDirectoryDependencies(for: driverPayload.uniqueID).map(Path.init), filteringRootPath: driverPayload.dependencyFilteringRootPath)
+            if executionDelegate.userPreferences.enableDebugActivityLogs && !directoryDependencies.isEmpty {
+                outputDelegate.emitOutput(ByteString(encodingAsUTF8: "Discovered directory dependency nodes:\n" + directoryDependencies.map(\.str).joined(separator: "\n") + "\n"))
+            }
+            for directory in directoryDependencies {
+                dynamicExecutionDelegate.discoveredDependencyDirectoryTree(directory)
+            }
         } catch {
             outputDelegate.error(error)
             return .failed

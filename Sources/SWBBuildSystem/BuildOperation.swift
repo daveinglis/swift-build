@@ -2552,9 +2552,9 @@ internal final class OperationSystemAdaptor: SWBLLBuild.BuildSystemDelegate, Act
         if reason == .invalidValue {
             switch rule {
             case let directoryContents as BuildKey.DirectoryContents:
-                dynamicOperationContext.clangModuleDependencyGraph.addInvalidatedDirectory(Path(directoryContents.path))
+                dynamicOperationContext.addInvalidatedDirectory(Path(directoryContents.path))
             case let filteredDirectoryContents as BuildKey.FilteredDirectoryContents:
-                dynamicOperationContext.clangModuleDependencyGraph.addInvalidatedDirectory(Path(filteredDirectoryContents.path))
+                dynamicOperationContext.addInvalidatedDirectory(Path(filteredDirectoryContents.path))
             default:
                 break
             }
