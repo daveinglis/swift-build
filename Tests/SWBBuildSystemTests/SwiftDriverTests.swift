@@ -30,8 +30,10 @@ fileprivate struct SwiftDriverTests: CoreBasedTests {
     /// Verifies that a header added to a clang umbrella directory is seen by the Swift driver's explicit module planning, when the planning reruns because a Swift source file changed in the same build.
     ///
     /// The scanner reuses clang's scanning PCMs from the module cache, which persists across builds. It only knows an umbrella directory changed if the build system reports it, and llbuild only learns that before the planning runs if the planning task asks for its directory dependencies to be checked first. Without both, the planning reuses the stale PCM, misses the module the new header imports, and the build fails.
-    @Test(.requireSDKs(.host), .skipHostOS(.windows), .requireDependencyScannerDirectoryDependencies, .requireDependencyScannerInvalidatedPaths, .requireLLBuild(apiVersion: 21))
-    func explicitModulesUmbrellaDirectoryDependency() async throws {
+    ///
+    /// When `failedBuildInBetween` is set, a build whose Swift compilation fails runs between the two. llbuild drops a command's recorded dependencies when it reruns, so the failed build has to keep the directory recorded for the build after it to notice the new header.
+    @Test(.requireSDKs(.host), .requireDependencyScannerDirectoryDependencies, .requireDependencyScannerInvalidatedPaths, .requireSwiftScannerDirectoryDependencies, .requireLLBuild(apiVersion: 21), arguments: [false, true])
+    func explicitModulesUmbrellaDirectoryDependency(failedBuildInBetween: Bool) async throws {
         try await withTemporaryDirectory { tmpDirPath async throws -> Void in
             let umbrellaDir = tmpDirPath.join("Test/aProject/UmbrellaHeaders")
             let otherDir = tmpDirPath.join("Test/aProject/OtherHeaders")
@@ -126,6 +128,25 @@ fileprivate struct SwiftDriverTests: CoreBasedTests {
             // The scanning PCM is only invalidated if it was built before the next build's scanner starts, and the comparison is in whole seconds.
             try await _Concurrency.Task.sleep(for: .seconds(2))
 
+            if failedBuildInBetween {
+                try await tester.fs.writeFileContents(sourcePath) { stream in
+                    stream <<<
+                    """
+                    import UmbrellaMod
+
+                    public func use() {
+                        first_fn()
+                        missing_fn()
+                    }
+                    """
+                }
+
+                try await tester.checkBuild(runDestination: .host, persistent: true) { results in
+                    results.checkError(.contains("cannot find 'missing_fn' in scope"))
+                    results.checkError(.prefix("Command SwiftCompile failed."), failIfNotFound: false)
+                }
+            }
+
             // Add a header and use it from a changed source file, so the planning reruns because of the source change and not only because of the directory.
             try await tester.fs.writeFileContents(umbrellaDir.join("Second.h")) { stream in
                 stream <<<
@@ -148,6 +169,8 @@ fileprivate struct SwiftDriverTests: CoreBasedTests {
 
             try await tester.checkBuild(runDestination: .host, persistent: true) { results in
                 results.checkNoDiagnostics()
+                // The module only the new header imports was planned, so the planning saw the new header.
+                results.checkTaskExists(.matchRuleType("SwiftExplicitDependencyGeneratePcm"), .matchRuleItemPattern(.contains("OtherMod")))
             }
         }
     }

@@ -300,13 +300,8 @@ public final class DependencyScanner {
     /// The paths must exactly match the directory dependencies reported by earlier scans: absolute, with `.` and `..` removed and symlinks unresolved. Call this before scanning, because modules already validated during a scan aren't invalidated. Does nothing if the libclang doesn't support it.
     public func addInvalidatedPaths(_ paths: [String]) {
         guard !paths.isEmpty else { return }
-        var cStrings = paths.map { strdup($0) }
-        defer { cStrings.forEach { free($0) } }
-        cStrings.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress!.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) {
-                libclang_scanner_add_invalidated_paths(scanner, $0, buffer.count)
-            }
-        }
+        let args = CStringArray(paths)
+        libclang_scanner_add_invalidated_paths(scanner, args.cArray, paths.count)
     }
 
     public func diagnoseInvalidNegativeStatCacheEntries() -> [String] {

@@ -823,13 +823,20 @@ fileprivate struct BuildDescriptionTests: CoreBasedTests {
         var shellBuilder = PlannedTaskBuilder(type: type, ruleInfo: ["Foo"], commandLine: ["true"], outputs: [MakePlannedPathNode(Path.root.join("tmp/foo.o"))])
         let shellTask = ConstructedTask(&shellBuilder, execTask: Task(&shellBuilder))
 
-        let buildConstruct = try await BuildDescription.construct(workspace: try TestWorkspace("empty", projects: []).load(getCore()), tasks: [scanTask, shellTask], path: Path.root.join("tmp"), signature: ByteString(encodingAsUTF8: "signature"), fs: fs)
+        var swiftBuilder = PlannedTaskBuilder(type: type, ruleInfo: ["SwiftDriver Compilation", "foo"], commandLine: ["builtin-Swift-Compilation"], outputs: [MakePlannedPathNode(Path.root.join("tmp/foo.swiftmodule"))])
+        swiftBuilder.action = SwiftCompilationTaskAction()
+        let swiftTask = ConstructedTask(&swiftBuilder, execTask: Task(&swiftBuilder))
+
+        let buildConstruct = try await BuildDescription.construct(workspace: try TestWorkspace("empty", projects: []).load(getCore()), tasks: [scanTask, shellTask, swiftTask], path: Path.root.join("tmp"), signature: ByteString(encodingAsUTF8: "signature"), fs: fs)
         _ = try #require(buildConstruct)
 
         let manifest = try fs.read(Path.root.join("tmp/signature.xcbuilddata/manifest.json")).bytes.asReadableString()
-        #expect(manifest.components(separatedBy: attribute).count - 1 == 1, Comment(rawValue: manifest))
-        let scanCommand = try #require(manifest.components(separatedBy: #""tool":"clang-scan-modules""#).dropFirst().first?.components(separatedBy: "},").first)
-        #expect(scanCommand.contains(attribute), Comment(rawValue: manifest))
+        // The clang scan and the Swift driver job scheduling command, but not the shell command.
+        #expect(manifest.components(separatedBy: attribute).count - 1 == 2, Comment(rawValue: manifest))
+        for tool in [SwiftCompilationTaskAction.toolIdentifier, ClangScanTaskAction.toolIdentifier] {
+            let command = try #require(manifest.components(separatedBy: #""tool":"\#(tool)""#).dropFirst().first?.components(separatedBy: "},").first, Comment(rawValue: manifest))
+            #expect(command.contains(attribute), Comment(rawValue: manifest))
+        }
     }
 
     /// Check the basic structure of an llbuild manifest with device agnostic file system.

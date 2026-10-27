@@ -202,13 +202,17 @@ public final class SwiftModuleDependencyGraph: SwiftGlobalExplicitDependencyGrap
         }
     }
 
-    public func querySwiftmodulesNeedingRegistrationForDebugging(for key: String) throws -> [String] {
-        let graph = try registryQueue.blocking_sync {
+    private func intermoduleDependencyGraph(for key: String) throws -> InterModuleDependencyGraph? {
+        try registryQueue.blocking_sync {
             guard let driver = registry[key] else {
                 throw StubError.error("Unable to find jobs for key \(key). Be sure to plan the build ahead of fetching results.")
             }
             return driver.intermoduleDependencyGraph
         }
+    }
+
+    public func querySwiftmodulesNeedingRegistrationForDebugging(for key: String) throws -> [String] {
+        let graph = try intermoduleDependencyGraph(for: key)
         guard let graph else { return [] }
         var swiftmodulePaths: [String] = []
         swiftmodulePaths.reserveCapacity(graph.modules.values.count)
@@ -235,12 +239,7 @@ public final class SwiftModuleDependencyGraph: SwiftGlobalExplicitDependencyGrap
     }
 
     public func queryPlanningDependencies(for key: String) throws -> [String] {
-        let graph = try registryQueue.blocking_sync {
-            guard let driver = registry[key] else {
-                throw StubError.error("Unable to find jobs for key \(key). Be sure to plan the build ahead of fetching results.")
-            }
-            return driver.intermoduleDependencyGraph
-        }
+        let graph = try intermoduleDependencyGraph(for: key)
         guard let graph else { return [] }
         var fileDependencies: [String] = []
         fileDependencies.reserveCapacity(graph.modules.values.count * 10)
@@ -276,18 +275,10 @@ public final class SwiftModuleDependencyGraph: SwiftGlobalExplicitDependencyGrap
     ///
     /// Adding or removing a file in one of these directories changes the module, so tasks which planned the build need to rerun.
     public func queryPlanningDirectoryDependencies(for key: String) throws -> [String] {
-        let graph = try registryQueue.blocking_sync {
-            guard let driver = registry[key] else {
-                throw StubError.error("Unable to find jobs for key \(key). Be sure to plan the build ahead of fetching results.")
-            }
-            return driver.intermoduleDependencyGraph
-        }
+        let graph = try intermoduleDependencyGraph(for: key)
         guard let graph else { return [] }
         var directoryDependencies = SWBUtil.OrderedSet<String>()
         for (_, moduleInfo) in graph.modules.sorted(byKey: { $0.moduleName < $1.moduleName }) {
-            guard moduleInfo != graph.mainModule else {
-                continue
-            }
             if case .clang(let details) = moduleInfo.details {
                 for directory in details.directoryDependencies ?? [] {
                     if let path = VirtualPath.lookup(directory.path).absolutePath {

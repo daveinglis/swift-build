@@ -548,7 +548,9 @@ package final class ClangModuleDependencyGraph {
             scanningCommandLine: scanningCommandLine,
             transitiveIncludeTreeIDs: includeTrees.withLock { $0 },
             transitiveCompileCommandCacheKeys: cacheKeys.withLock { $0 },
-            usesSerializedDiagnostics: usesSerializedDiagnostics)
+            usesSerializedDiagnostics: usesSerializedDiagnostics,
+            // Recorded so a later failed scan, which can't discover directories, can still register the ones this scan found.
+            directoryDependencies: directoryPaths.withLock { Array(Set($0)).sorted() })
         try recordedDependencyInfoRegistry.getOrInsert(scanningOutputPath, isValid: { _ in true }) {
             try register(path: scanningOutputPath, dependencyInfo: dependencyInfo, fileSystem: fileSystem)
         }

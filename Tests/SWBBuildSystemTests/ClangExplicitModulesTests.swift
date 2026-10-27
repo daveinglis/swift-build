@@ -713,8 +713,10 @@ fileprivate struct ClangExplicitModulesTests: CoreBasedTests {
     /// Verifies that a header added to an umbrella directory is seen by a scan which reruns because its source file changed in the same build.
     ///
     /// The scanner reuses scanning PCMs from the module cache, which persists across builds. It only knows an umbrella directory changed if the build system reports it, and llbuild only learns that before the scan runs if the scan task asks for its directory dependencies to be checked first. Without both, the scan reuses the stale PCM, the scan misses the module the new header imports, and the umbrella module can't be built.
-    @Test(.requireSDKs(.host), .requireDependencyScannerDirectoryDependencies, .requireDependencyScannerInvalidatedPaths, .requireLLBuild(apiVersion: 21))
-    func explicitModulesUmbrellaDirectoryDependencyWithSourceChange() async throws {
+    ///
+    /// When `failedBuildInBetween` is set, a build whose scan fails runs between the two. llbuild drops a command's recorded dependencies when it reruns, so the failed build has to keep the directory recorded for the build after it to notice the new header.
+    @Test(.requireSDKs(.host), .requireDependencyScannerDirectoryDependencies, .requireDependencyScannerInvalidatedPaths, .requireLLBuild(apiVersion: 21), arguments: [false, true])
+    func explicitModulesUmbrellaDirectoryDependencyWithSourceChange(failedBuildInBetween: Bool) async throws {
         try await withTemporaryDirectory { tmpDirPath in
             let testWorkspace = TestWorkspace(
                 "Test",
@@ -804,6 +806,21 @@ fileprivate struct ClangExplicitModulesTests: CoreBasedTests {
 
             // The scanning PCM is only invalidated if it was built before the next build's scanner starts, and the comparison is in whole seconds.
             try await _Concurrency.Task.sleep(for: .seconds(2))
+
+            if failedBuildInBetween {
+                try await tester.fs.writeFileContents(sourcePath) { stream in
+                    stream <<<
+                    """
+                    @import UmbrellaMod;
+                    @import MissingModule;
+                    """
+                }
+
+                try await tester.checkBuild(runDestination: .host, persistent: true) { results in
+                    results.checkError(.contains("MissingModule"))
+                    results.checkError(.prefix("Command ScanDependencies failed."), failIfNotFound: false)
+                }
+            }
 
             // Add a header and use it from a changed source file, so the scan reruns because of the source change and not only because of the directory.
             try await tester.fs.writeFileContents(umbrellaDir.join("Second.h")) { stream in

@@ -150,6 +150,16 @@ public final class ClangScanTaskAction: TaskAction, BuildValueValidatingTaskActi
 
         let clangModuleDependencyGraph = dynamicExecutionDelegate.operationContext.clangModuleDependencyGraph
 
+        // A failed scan can't discover directories, but llbuild drops this command's recorded dependencies when it reruns. Re-register the ones the last successful scan found so that the next build still notices changes in them.
+        func registerDirectoriesFromPreviousScan() {
+            guard let previous = try? clangModuleDependencyGraph.queryDependencies(at: explicitModulesPayload.scanningOutputPath, fileSystem: executionDelegate.fs) else {
+                return
+            }
+            for dir in previous.directories {
+                dynamicExecutionDelegate.discoveredDependencyDirectoryTree(dir)
+            }
+        }
+
         let result: ClangModuleDependencyGraph.ScanResult
         do {
             result = try clangModuleDependencyGraph.scanModuleDependencies(
@@ -176,15 +186,19 @@ public final class ClangScanTaskAction: TaskAction, BuildValueValidatingTaskActi
             if !diagnostics.contains(where: { $0.behavior == .error }) {
                 outputDelegate.error("failed to scan dependencies for source '\(explicitModulesPayload.sourcePath.str)'")
             }
+            registerDirectoriesFromPreviousScan()
             return .failed
         } catch DependencyScanner.Error.dependencyScanErrorString(let errorString) {
             outputDelegate.error("There was an error scanning dependencies for source '\(explicitModulesPayload.sourcePath.str)':\n\(errorString)")
+            registerDirectoriesFromPreviousScan()
             return .failed
         } catch DependencyScanner.Error.dependencyScanUnknownError {
             outputDelegate.error("There was an unknown error scanning dependencies for source '\(explicitModulesPayload.sourcePath.str)'")
+            registerDirectoriesFromPreviousScan()
             return .failed
         } catch {
             outputDelegate.error("There was an error scanning dependencies for source '\(explicitModulesPayload.sourcePath.str)':\n\(error)")
+            registerDirectoriesFromPreviousScan()
             return .failed
         }
 

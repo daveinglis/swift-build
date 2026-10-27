@@ -2113,7 +2113,7 @@ extern "C" {
         }
     }
 
-    void libclang_scanner_add_invalidated_paths(libclang_scanner_t scanner, const char *const *paths, size_t count) {
+    void libclang_scanner_add_invalidated_paths(libclang_scanner_t scanner, char *const *paths, size_t count) {
         auto lib = scanner->scanner->lib;
         if (!lib->fns.clang_experimental_DependencyScannerService_addInvalidatedPaths) {
             return;

@@ -210,7 +210,7 @@ typedef size_t (^module_lookup_output_t)(
 CSUPPORT_EXPORT void libclang_scanner_diagnose_invalid_negative_stat_cache_entries(libclang_scanner_t scanner, void (^path_callback)(const char *));
 
 /// Reports that \p paths changed since the last scan, so scanning PCMs which depend on them are rebuilt. Paths must exactly match the directory dependencies the scanner reported. Does nothing if the scanner does not support this.
-CSUPPORT_EXPORT void libclang_scanner_add_invalidated_paths(libclang_scanner_t scanner, const char *const *paths, size_t count);
+CSUPPORT_EXPORT void libclang_scanner_add_invalidated_paths(libclang_scanner_t scanner, char *const *paths, size_t count);
 
 /// Scan the given Clang "cc1" invocation, looking for dependencies.
 ///
