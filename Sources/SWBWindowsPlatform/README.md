@@ -27,6 +27,10 @@ The following table is a state machine for clang's search path logic for the VC 
 | No                           | -                                 | Yes                            | `%visualc-tools-root%`                                     |
 | No                           | -                                 | No                             | environment variable `VCToolsInstallDir`                   |
 
+### Which Visual Studio installation is used
+
+Swift Build sets `VCToolsInstallDir` for the tasks it runs, based on the installations reported by `vswhere`. It uses the newest MSVC toolset (the highest version folder in `VC\Tools\MSVC`) of the newest installation which has one. Installations with the same version are considered in the order `vswhere` reports them (newest and last installed first). An installation without a Visual C++ toolset, such as Build Tools installed with only the MSBuild workload, is skipped.
+
 ### Examples
 
 Example values that can be given to various Swift compiler options:

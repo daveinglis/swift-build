@@ -37,18 +37,33 @@ public final class WindowsPlugin: Sendable {
     func cachedLatestVSInstallDirectory(fs: any FSProxy) async throws -> Path? {
        try await latestVsInstallationDirectory.value {
             let installations = try await cachedVSInstallations()
-            .sorted(by: { $0.installationVersion > $1.installationVersion })
-            if let latest = installations.first {
-                let msvcDir = latest.installationPath.join("VC").join("Tools").join("MSVC")
-                if fs.exists(msvcDir) {
-                    let versions = try fs.listdir(msvcDir).map { try Version($0) }.sorted { $0 > $1 }
-                    if let latestVersion = versions.first {
-                        return msvcDir.join(latestVersion.description)
-                    }
-                }
-            }
-            return nil
+            return Self.latestMSVCToolsInstallDirectory(in: installations, fs: fs)
         }
+    }
+
+    /// Returns the directory of the newest MSVC toolset (e.g. `<VS>\VC\Tools\MSVC\14.44.35207`) provided by the given Visual Studio installations.
+    ///
+    /// Installations are considered from the newest version to the oldest. Installations with the same version keep the order in which `vswhere` reported them (newest and last installed first), so the result does not depend on the stability of the sort.
+    ///
+    /// An installation which has no usable Visual C++ toolset is skipped in favor of the next one, rather than hiding the toolsets of the other installations. This covers a Build Tools instance installed without the C++ workload, as well as one whose toolset folder can't be read.
+    @_spi(Testing) public static func latestMSVCToolsInstallDirectory(in installations: [VSInstallation], fs: any FSProxy) -> Path? {
+        let ordered = installations.enumerated().sorted { lhs, rhs in
+            if lhs.element.installationVersion != rhs.element.installationVersion {
+                return lhs.element.installationVersion > rhs.element.installationVersion
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+
+        for installation in ordered {
+            let msvcDir = installation.installationPath.join("VC").join("Tools").join("MSVC")
+            guard fs.exists(msvcDir), let entries = try? fs.listdir(msvcDir) else { continue }
+            // Ignore any entries which are not toolset versions. Keep the name as it is on disk, as it does not necessarily round-trip through `Version`.
+            let toolsets = entries.compactMap { name in (try? Version(name)).map { (name: name, version: $0) } }
+            if let latest = toolsets.max(by: { $0.version < $1.version }) {
+                return msvcDir.join(latest.name)
+            }
+        }
+        return nil
     }
 }
 

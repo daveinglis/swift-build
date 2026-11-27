@@ -22,7 +22,8 @@ extension VSInstallation.Component.ID {
 }
 
 extension Core {
+    /// Whether any Visual Studio installation has the component. This is not necessarily the installation whose toolset the build uses.
     func hasVisualStudioComponent(_ name: VSInstallation.Component.ID) async throws -> Bool {
-        try await pluginManager.extensions(of: EnvironmentExtensionPoint.self).compactMap({ $0 as? WindowsEnvironmentExtension }).first?.plugin.cachedVSInstallations().first?.packages.contains(where: { $0.id == name }) == true
+        try await pluginManager.extensions(of: EnvironmentExtensionPoint.self).compactMap({ $0 as? WindowsEnvironmentExtension }).first?.plugin.cachedVSInstallations().contains(where: { $0.packages.contains(where: { $0.id == name }) }) == true
     }
 }
